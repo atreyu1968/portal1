@@ -1,228 +1,209 @@
-# Installation Guide for Ubuntu Server
+# Guía de Instalación para Ubuntu Server
 
-This guide will help you set up the application on a clean Ubuntu server.
+Esta guía te ayudará a instalar y configurar el Portal de Educación en un servidor Ubuntu limpio.
 
-## Prerequisites
+## Requisitos Previos
 
-First, update the system and install basic dependencies:
+- Ubuntu Server 20.04 LTS o superior
+- Acceso root o sudo
+- Conexión a Internet
+- Cuenta de Cloudflare (para el túnel)
+
+## 1. Instalación Automática
+
+La forma más rápida de instalar es usando nuestro script de instalación:
 
 ```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
+# Descargar el script
+wget https://raw.githubusercontent.com/atreyu1968/portal1/main/install.sh
 
-# Install basic tools
+# Dar permisos de ejecución
+chmod +x install.sh
+
+# Ejecutar el script
+sudo ./install.sh
+```
+
+El script se encargará de:
+- Instalar todas las dependencias necesarias
+- Clonar el repositorio
+- Configurar el entorno
+- Instalar y configurar Cloudflared
+- Configurar PM2 para el backend
+- Establecer los backups automáticos
+
+## 2. Instalación Manual
+
+Si prefieres instalar manualmente, sigue estos pasos:
+
+### 2.1 Actualizar el Sistema
+
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+### 2.2 Instalar Dependencias Básicas
+
+```bash
 sudo apt install -y curl git build-essential
 ```
 
-## Install Node.js and npm
-
-Install Node.js 20.x:
+### 2.3 Instalar Node.js
 
 ```bash
-# Add NodeSource repository
+# Añadir repositorio de Node.js
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 
-# Install Node.js and npm
+# Instalar Node.js
 sudo apt install -y nodejs
 
-# Verify installation
-node --version  # Should show v20.x.x
-npm --version   # Should show 10.x.x
+# Verificar instalación
+node --version  # Debería mostrar v20.x.x
+npm --version   # Debería mostrar 10.x.x
 ```
 
-## Install Nginx
+### 2.4 Instalar Cloudflared
 
 ```bash
-# Install Nginx
-sudo apt install -y nginx
+# Descargar e instalar Cloudflared
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb
+rm cloudflared.deb
 
-# Start Nginx and enable it on boot
-sudo systemctl start nginx
-sudo systemctl enable nginx
-
-# Check status
-sudo systemctl status nginx
+# Verificar instalación
+cloudflared --version
 ```
 
-## Clone and Setup Application
+### 2.5 Clonar y Configurar la Aplicación
 
 ```bash
-# Create application directory
+# Crear directorio de la aplicación
 sudo mkdir -p /var/www/portal
 sudo chown -R $USER:$USER /var/www/portal
 
-# Clone repository
+# Clonar repositorio
 cd /var/www/portal
-git clone <your-repository-url> .
+git clone https://github.com/atreyu1968/portal1.git .
 
-# Install frontend dependencies
+# Instalar dependencias del frontend
 npm install
 
-# Install backend dependencies
+# Instalar dependencias del backend
 cd server
 npm install
 cd ..
 
-# Build frontend
+# Construir frontend
 npm run build
 ```
 
-## Configure Environment
-
-Create environment files:
+### 2.6 Configurar Variables de Entorno
 
 ```bash
-# Frontend environment (.env)
+# Frontend (.env)
 cat > .env << EOL
-VITE_API_URL=http://your-domain.com/api
+VITE_API_URL=/api
 EOL
 
-# Backend environment (server/.env)
+# Backend (server/.env)
 cat > server/.env << EOL
 PORT=3001
 DB_PATH=./database.sqlite
 EOL
 ```
 
-## Configure Nginx
-
-Create Nginx configuration:
+### 2.7 Configurar PM2
 
 ```bash
-sudo nano /etc/nginx/sites-available/portal
-```
-
-Add this configuration:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    root /var/www/portal/dist;
-    index index.html;
-
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-XSS-Protection "1; mode=block";
-    add_header X-Content-Type-Options "nosniff";
-    add_header Referrer-Policy "strict-origin-when-cross-origin";
-    add_header Content-Security-Policy "default-src 'self' 'unsafe-inline' 'unsafe-eval' https:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:;";
-
-    # Gzip compression
-    gzip on;
-    gzip_vary on;
-    gzip_min_length 10240;
-    gzip_proxied expired no-cache no-store private auth;
-    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml application/javascript;
-    gzip_disable "MSIE [1-6]\.";
-
-    # Frontend
-    location / {
-        try_files $uri $uri/ /index.html;
-        expires -1;
-        add_header Cache-Control "no-store, no-cache, must-revalidate";
-    }
-
-    # API proxy
-    location /api/ {
-        proxy_pass http://127.0.0.1:3001/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # Cache static assets
-    location /assets {
-        expires 1y;
-        add_header Cache-Control "public, no-transform";
-    }
-}
-```
-
-Enable the site:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/portal /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default  # Remove default site
-sudo nginx -t  # Test configuration
-sudo systemctl restart nginx
-```
-
-## Setup Process Manager (PM2)
-
-Install and configure PM2 to manage the Node.js process:
-
-```bash
-# Install PM2 globally
+# Instalar PM2 globalmente
 sudo npm install -g pm2
 
-# Start backend server
+# Iniciar backend
 cd /var/www/portal/server
 pm2 start index.js --name "portal-backend"
 
-# Save PM2 configuration
+# Guardar configuración de PM2
 pm2 save
 
-# Setup PM2 to start on boot
+# Configurar inicio automático
 sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u $USER --hp /home/$USER
 ```
 
-## Database Setup
+## 3. Configuración de Cloudflared
 
-The SQLite database will be automatically initialized when the server starts. The default admin credentials are:
-
-- Username: admin
-- Password: admin123
-
-## Firewall Configuration
-
-Configure UFW firewall:
+### 3.1 Autenticar Cloudflared
 
 ```bash
-sudo ufw allow 'Nginx Full'
-sudo ufw allow ssh
-sudo ufw enable
+cloudflared tunnel login
 ```
 
-## SSL/TLS Configuration (Optional but Recommended)
-
-Install Certbot and obtain SSL certificate:
+### 3.2 Crear y Configurar el Túnel
 
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+# Crear túnel
+cloudflared tunnel create portal-tunnel
+
+# Configurar túnel
+cat > ~/.cloudflared/config.yml << EOL
+tunnel: portal-tunnel
+credentials-file: /root/.cloudflared/<TU-ID-TUNEL>.json
+
+ingress:
+  - hostname: tu-dominio.com
+    service: http://localhost:5173
+  - hostname: api.tu-dominio.com
+    service: http://localhost:3001
+  - service: http_status:404
+EOL
+
+# Iniciar túnel
+cloudflared tunnel run portal-tunnel
 ```
 
-## File Permissions
-
-Set proper permissions:
+### 3.3 Configurar Inicio Automático del Túnel
 
 ```bash
-sudo chown -R $USER:$USER /var/www/portal
-sudo chmod -R 755 /var/www/portal
+sudo cloudflared service install
 ```
 
-## Monitoring and Logs
+## 4. Backups
 
-View logs:
+Configurar backups automáticos:
 
 ```bash
-# Nginx logs
-sudo tail -f /var/log/nginx/access.log
-sudo tail -f /var/log/nginx/error.log
+# Crear script de backup
+cat > /var/www/portal/backup.sh << 'EOL'
+#!/bin/bash
+BACKUP_DIR="/var/backups/portal"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-# Application logs
-pm2 logs portal-backend
+mkdir -p "$BACKUP_DIR"
+cp /var/www/portal/server/database.sqlite "$BACKUP_DIR/database_$TIMESTAMP.sqlite"
+tar -czf "$BACKUP_DIR/uploads_$TIMESTAMP.tar.gz" /var/www/portal/uploads
+find "$BACKUP_DIR" -type f -mtime +7 -delete
+EOL
+
+# Hacer ejecutable el script
+chmod +x /var/www/portal/backup.sh
+
+# Añadir a crontab (backup diario a las 2 AM)
+(crontab -l 2>/dev/null; echo "0 2 * * * /var/www/portal/backup.sh") | crontab -
 ```
 
-## Maintenance
+## 5. Credenciales por Defecto
 
-Regular maintenance commands:
+```
+Usuario: admin
+Contraseña: admin123
+```
+
+⚠️ **IMPORTANTE**: Cambia estas credenciales inmediatamente después de iniciar sesión.
+
+## 6. Mantenimiento
+
+### 6.1 Actualizar la Aplicación
 
 ```bash
-# Update application
 cd /var/www/portal
 git pull
 npm install
@@ -230,90 +211,72 @@ npm run build
 cd server
 npm install
 pm2 restart portal-backend
+```
 
-# Monitor processes
+### 6.2 Monitorización
+
+```bash
+# Estado de PM2
 pm2 status
 pm2 monit
 
-# View resource usage
-htop
+# Logs de la aplicación
+pm2 logs portal-backend
+
+# Estado del túnel
+cloudflared tunnel info portal-tunnel
 ```
 
-## Backup
-
-Setup daily backups:
+### 6.3 Backup Manual
 
 ```bash
-# Create backup script
-cat > /var/www/portal/backup.sh << 'EOL'
-#!/bin/bash
-BACKUP_DIR="/var/backups/portal"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-
-# Create backup directory
-mkdir -p "$BACKUP_DIR"
-
-# Backup database
-cp /var/www/portal/server/database.sqlite "$BACKUP_DIR/database_$TIMESTAMP.sqlite"
-
-# Backup uploads
-tar -czf "$BACKUP_DIR/uploads_$TIMESTAMP.tar.gz" /var/www/portal/uploads
-
-# Keep only last 7 days of backups
-find "$BACKUP_DIR" -type f -mtime +7 -delete
-EOL
-
-# Make script executable
-chmod +x /var/www/portal/backup.sh
-
-# Add to crontab
-(crontab -l 2>/dev/null; echo "0 2 * * * /var/www/portal/backup.sh") | crontab -
+/var/www/portal/backup.sh
 ```
 
-## Security Recommendations
+## 7. Solución de Problemas
 
-1. Change default admin password immediately after installation
-2. Enable SSL/TLS using Let's Encrypt
-3. Keep system and dependencies updated
-4. Monitor logs regularly
-5. Set up fail2ban for additional security
-6. Configure regular backups
-7. Use strong passwords
-8. Keep firewall rules minimal and specific
+### 7.1 El Frontend no Responde
 
-## Troubleshooting
+```bash
+cd /var/www/portal
+npm run dev
+```
 
-Common issues and solutions:
+### 7.2 El Backend no Responde
 
-1. If Nginx shows 502 Bad Gateway:
-   ```bash
-   sudo systemctl restart nginx
-   pm2 restart portal-backend
-   ```
+```bash
+pm2 restart portal-backend
+pm2 logs portal-backend
+```
 
-2. If permissions issues occur:
-   ```bash
-   sudo chown -R $USER:$USER /var/www/portal
-   sudo chmod -R 755 /var/www/portal
-   ```
+### 7.3 Problemas con el Túnel
 
-3. If database errors occur:
-   ```bash
-   # Backup database
-   cp /var/www/portal/server/database.sqlite /var/www/portal/server/database.sqlite.bak
-   
-   # Restart backend
-   pm2 restart portal-backend
-   ```
+```bash
+# Reiniciar el servicio de Cloudflared
+sudo systemctl restart cloudflared
 
-4. If the application is not accessible:
-   ```bash
-   # Check if Nginx is running
-   sudo systemctl status nginx
-   
-   # Check if backend is running
-   pm2 status
-   
-   # Check firewall status
-   sudo ufw status
-   ```
+# Ver logs del túnel
+cloudflared tunnel logs portal-tunnel
+```
+
+### 7.4 Problemas de Permisos
+
+```bash
+sudo chown -R $USER:$USER /var/www/portal
+sudo chmod -R 755 /var/www/portal
+```
+
+## 8. Recomendaciones de Seguridad
+
+1. Cambiar las credenciales por defecto inmediatamente
+2. Mantener el sistema y las dependencias actualizadas
+3. Monitorizar los logs regularmente
+4. Configurar backups en una ubicación externa
+5. Usar contraseñas fuertes
+6. Mantener copias de seguridad de la configuración de Cloudflared
+
+## 9. Recursos Adicionales
+
+- [Documentación de Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/)
+- [Documentación de PM2](https://pm2.keymetrics.io/docs/usage/quick-start/)
+- [Repositorio del Proyecto](https://github.com/atreyu1968/portal1)
