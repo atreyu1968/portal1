@@ -15,7 +15,7 @@ La forma más rápida de instalar es usando nuestro script de instalación:
 
 ```bash
 # Descargar el script
-wget https://raw.githubusercontent.com/atreyu1968/portal1/main/install.sh
+wget https://github.com/atreyu1968/portal1/main/install.sh
 
 # Dar permisos de ejecución
 chmod +x install.sh
